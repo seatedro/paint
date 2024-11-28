@@ -1,5 +1,7 @@
 models
 build
 images
+bin
+**/log.txt
 **/.DS_Store
 
