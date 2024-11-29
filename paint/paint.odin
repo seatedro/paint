@@ -1,5 +1,6 @@
 package paint
 
+import "core:fmt"
 import rl "vendor:raylib"
 
 
@@ -30,19 +31,22 @@ draw :: proc() {
 		rl.GRAY,
 	)
 
-	// Draw status bar at bottom
-	rl.DrawRectangle(
-		0,
-		i32(state.window_size.y) - STATUSBAR_HEIGHT,
-		i32(state.window_size.x),
-		STATUSBAR_HEIGHT,
-		rl.LIGHTGRAY,
-	)
+	// Draw status bar at bottom with FPS counter
+	status_bar_y := i32(state.window_size.y) - STATUSBAR_HEIGHT
+	rl.DrawRectangle(0, status_bar_y, i32(state.window_size.x), STATUSBAR_HEIGHT, rl.LIGHTGRAY)
 
+	fps_text := fmt.tprintf("FPS: %d", rl.GetFPS())
+	fps_text_pos := rl.Vector2 {
+		f32(
+			state.window_size.x -
+			rl.MeasureTextEx(ui_font, cstring(raw_data(fps_text)), FONT_SIZE, 1).x -
+			10,
+		),
+		f32(status_bar_y) + f32(STATUSBAR_HEIGHT) / 2 - FONT_SIZE / 2,
+	}
+	rl.DrawTextEx(ui_font, cstring(raw_data(fps_text)), fps_text_pos, FONT_SIZE, 1, rl.BLACK)
 
 	draw_menu_bar()
-
-
 	rl.EndDrawing()
 }
 
@@ -58,11 +62,10 @@ paint_update :: proc() -> bool {
 
 @(export)
 paint_init_window :: proc() {
-	rl.SetConfigFlags(
-		{.WINDOW_RESIZABLE, .VSYNC_HINT, .WINDOW_TOPMOST, .MSAA_4X_HINT, .WINDOW_HIGHDPI},
-	)
+	rl.SetConfigFlags({.WINDOW_RESIZABLE, .VSYNC_HINT, .WINDOW_TOPMOST, .MSAA_4X_HINT})
+	rl.SetWindowMonitor(0)
 	rl.InitWindow(1280, 720, "paint 2.0")
-	rl.SetWindowPosition(200, 200)
+	rl.SetWindowPosition(0, 0)
 	rl.SetTargetFPS(60)
 
 	ui_font = rl.LoadFontEx(cstring("assets/microsoftsansserif.ttf"), FONT_SIZE, nil, 0)

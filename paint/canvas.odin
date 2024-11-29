@@ -187,20 +187,16 @@ draw_stroke :: proc(canvas: ^Canvas, points: []rl.Vector2, color: rl.Color, size
 	extended_points := make([dynamic]rl.Vector2, 0, len(points) + 2)
 	defer delete(extended_points)
 
-	// Add start control point
 	start_control := points[0] - (points[1] - points[0])
 	append(&extended_points, start_control)
 
-	// Add actual points
 	for point in points {
 		append(&extended_points, point)
 	}
 
-	// Add end control point
 	end_control := points[len(points) - 1] + (points[len(points) - 1] - points[len(points) - 2])
 	append(&extended_points, end_control)
 
-	// Draw the spline with high segment count for smoothness
 	rl.DrawSplineCatmullRom(
 		raw_data(extended_points[:]),
 		i32(len(extended_points)),
@@ -208,7 +204,6 @@ draw_stroke :: proc(canvas: ^Canvas, points: []rl.Vector2, color: rl.Color, size
 		color,
 	)
 
-	// Draw rounded caps at endpoints
 	rl.DrawCircleV(points[0], f32(size) / 2, color)
 	rl.DrawCircleV(points[len(points) - 1], f32(size) / 2, color)
 }
@@ -223,25 +218,27 @@ update_drawing :: proc(state: ^State, canvas_pos: rl.Vector2, color: rl.Color) {
 
 		if rl.IsMouseButtonDown(.LEFT) {
 			if !state.draw_state.is_drawing {
-				// Start new stroke
 				state.draw_state.is_drawing = true
 				clear(&state.draw_state.points)
-			}
-
-			// Add point to current stroke
-			add_point(&state.draw_state, canvas_pos)
-
-			// Draw current stroke
-			if len(state.draw_state.points) > 0 {
-				draw_stroke(
-					&state.canvas,
-					state.draw_state.points[:],
-					state.primary_color,
-					i32(state.brush_size),
-				)
+				add_point(&state.draw_state, canvas_pos)
+			} else {
+				add_point(&state.draw_state, canvas_pos)
+				if len(state.draw_state.points) > 0 {
+					draw_stroke(
+						&state.canvas,
+						state.draw_state.points[:],
+						state.primary_color,
+						i32(state.brush_size),
+					)
+				}
 			}
 		} else if state.draw_state.is_drawing {
-			// End stroke
+			// If we only had one point and we let go, it was a tap
+			if len(state.draw_state.points) == 1 {
+				rl.BeginTextureMode(state.canvas.texture)
+				rl.DrawCircleV(state.draw_state.points[0], f32(state.brush_size), color)
+				rl.EndTextureMode()
+			}
 			reset_drawing(&state.draw_state)
 		}
 	}
