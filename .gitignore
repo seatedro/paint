@@ -2,6 +2,9 @@ models
 build
 images
 bin
+**/*.dylib
+**/*.dSYM
+**/*.bin
 **/log.txt
 **/.DS_Store
 
