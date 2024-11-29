@@ -2,67 +2,55 @@ package paint
 
 import rl "vendor:raylib"
 
-PIXEL_WINDOW_HEIGHT :: 180
-
-Tab :: enum {
-	Home,
-	View,
-}
-
-Tool :: enum {
-	Pencil,
-	Brush,
-	Eraser,
-	Fill,
-	ColorPicker,
-	Text,
-	Shape,
-}
-
-State :: struct {
-	active_tab:      Tab,
-	selected_tool:   Tool,
-	primary_color:   rl.Color,
-	secondary_color: rl.Color,
-	brush_size:      int,
-	show_grid:       bool,
-	zoom_level:      f32,
-	window_size:     rl.Vector2,
-}
-state: ^State
-
 
 update :: proc() {
-	// state.window_size = {f32(rl.GetScreenWidth()), f32(rl.GetScreenHeight())}
+	state.window_size = {f32(rl.GetScreenWidth()), f32(rl.GetScreenHeight())}
+
+	update_canvas(&state.canvas)
+
+	mouse_pos := rl.GetMousePosition()
+	canvas_pos := window_to_canvas_coords(&state.canvas, mouse_pos)
+
+	update_drawing(state, canvas_pos, state.primary_color)
 }
+
 
 draw :: proc() {
 	rl.BeginDrawing()
-	rl.ClearBackground(rl.WHITE)
+	rl.ClearBackground(rl.DARKGRAY)
 
-	// Draw ribbon area at top
-	rl.DrawRectangle(0, 0, i32(state.window_size.x), 20, rl.LIGHTGRAY)
+	draw_canvas(&state.canvas)
 
 	// Draw toolbar on left
-	rl.DrawRectangle(0, 20, 60, i32(state.window_size.y) - 80, rl.GRAY)
+	rl.DrawRectangle(
+		0,
+		MENUBAR_HEIGHT,
+		TOOLBAR_WIDTH,
+		i32(state.window_size.y - MENUBAR_HEIGHT),
+		rl.GRAY,
+	)
 
 	// Draw status bar at bottom
-	rl.DrawRectangle(0, i32(state.window_size.y) - 20, i32(state.window_size.x), 20, rl.DARKGRAY)
-
-	// Draw canvas area (remaining space)
 	rl.DrawRectangle(
-		60,
-		20,
-		i32(state.window_size.x) - 60,
-		i32(state.window_size.y) - 80,
-		rl.WHITE,
+		0,
+		i32(state.window_size.y) - STATUSBAR_HEIGHT,
+		i32(state.window_size.x),
+		STATUSBAR_HEIGHT,
+		rl.LIGHTGRAY,
 	)
+
+
+	draw_menu_bar()
+
 
 	rl.EndDrawing()
 }
 
 @(export)
 paint_update :: proc() -> bool {
+	if rl.IsFileDropped() {
+		rl.UnloadFont(ui_font) // Clean up old font before loading new one
+	}
 	update()
 	draw()
 	return !rl.WindowShouldClose()
@@ -70,10 +58,14 @@ paint_update :: proc() -> bool {
 
 @(export)
 paint_init_window :: proc() {
-	rl.SetConfigFlags({.WINDOW_RESIZABLE, .VSYNC_HINT, .WINDOW_TOPMOST})
+	rl.SetConfigFlags(
+		{.WINDOW_RESIZABLE, .VSYNC_HINT, .WINDOW_TOPMOST, .MSAA_4X_HINT, .WINDOW_HIGHDPI},
+	)
 	rl.InitWindow(1280, 720, "paint 2.0")
 	rl.SetWindowPosition(200, 200)
 	rl.SetTargetFPS(60)
+
+	ui_font = rl.LoadFontEx(cstring("assets/microsoftsansserif.ttf"), FONT_SIZE, nil, 0)
 }
 
 @(export)
@@ -85,18 +77,25 @@ paint_init :: proc() {
 		selected_tool   = .Pencil,
 		primary_color   = rl.BLACK,
 		secondary_color = rl.WHITE,
-		brush_size      = 1,
-		show_grid       = false,
+		brush_size      = 5,
+		show_grid       = true,
 		zoom_level      = 1.0,
 		window_size     = {1280, 720},
+		canvas          = create_canvas(1920, 1080),
+		draw_state      = create_draw_state(),
 	}
 
 	paint_hot_reloaded(state)
+	init_menu_style()
+
 }
 
 @(export)
 paint_shutdown :: proc() {
+	destroy_draw_state(&state.draw_state)
+	destroy_canvas(&state.canvas)
 	free(state)
+	rl.UnloadFont(ui_font)
 }
 
 @(export)
@@ -117,6 +116,7 @@ paint_memory_size :: proc() -> int {
 @(export)
 paint_hot_reloaded :: proc(mem: rawptr) {
 	state = (^State)(mem)
+	ui_font = rl.LoadFontEx(cstring("assets/microsoftsansserif.ttf"), FONT_SIZE, nil, 0)
 }
 
 @(export)
