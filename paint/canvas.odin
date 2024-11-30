@@ -1,12 +1,12 @@
 package paint
 
-import "core:fmt"
 import "core:time"
 import rl "vendor:raylib"
 
 POINT_DISTANCE_MIN :: 2.0 // Minimum distance between points
 SPLINE_SEGMENTS :: 20 // Number of segments per spline curve
 SMOOTH_FACTOR :: 0.25
+HANDLE_SIZE :: 5
 
 DrawState :: struct {
 	smooth_lines: bool,
@@ -16,16 +16,26 @@ DrawState :: struct {
 }
 
 Canvas :: struct {
-	texture:     rl.RenderTexture2D, // Main Canvas
-	width:       i32,
-	height:      i32,
-	position:    rl.Vector2, // Canvas Position in window
-	scale:       f32, // zoom
-	offset:      rl.Vector2, // pan
-	is_dragging: bool,
-	drag_start:  rl.Vector2,
-	last_offset: rl.Vector2,
-	history:     History,
+	texture:       rl.RenderTexture2D, // Main Canvas
+	width:         i32,
+	height:        i32,
+	position:      rl.Vector2, // Canvas Position in window
+	scale:         f32, // zoom
+	offset:        rl.Vector2, // pan
+	is_dragging:   bool,
+	drag_start:    rl.Vector2,
+	last_offset:   rl.Vector2,
+	history:       History,
+	resize_handle: ResizeHandle,
+	is_resizing:   bool,
+}
+
+ResizeHandle :: enum {
+	None,
+	TopLeft,
+	TopRight,
+	BottomLeft,
+	BottomRight,
 }
 
 create_canvas :: proc(width, height: i32) -> Canvas {
@@ -53,6 +63,36 @@ destroy_canvas :: proc(canvas: ^Canvas) {
 	rl.UnloadRenderTexture(canvas.texture)
 }
 
+resize_canvas :: proc(canvas: ^Canvas, new_width, new_height: i32) {
+	old_texture := canvas.texture
+	defer rl.UnloadRenderTexture(old_texture)
+
+	canvas.texture = rl.LoadRenderTexture(new_width, new_height)
+	canvas.width = new_width
+	canvas.height = new_height
+
+	// Clear new canvas to white
+	rl.BeginTextureMode(canvas.texture)
+	rl.ClearBackground(rl.WHITE)
+
+	// Copy old content
+	source_rect := rl.Rectangle {
+		0,
+		0,
+		f32(old_texture.texture.width),
+		-f32(old_texture.texture.height),
+	}
+	dest_rect := rl.Rectangle {
+		0,
+		0,
+		f32(old_texture.texture.width),
+		f32(old_texture.texture.height),
+	}
+	rl.DrawTexturePro(old_texture.texture, source_rect, dest_rect, {0, 0}, 0, rl.WHITE)
+
+	rl.EndTextureMode()
+}
+
 update_canvas :: proc(canvas: ^Canvas) {
 	// Handle zooming
 	wheel := rl.GetMouseWheelMove()
@@ -63,8 +103,6 @@ update_canvas :: proc(canvas: ^Canvas) {
 		} else {
 			scale *= 0.9
 		}
-
-		fmt.println("scale :: %d", scale)
 
 		old_scale := canvas.scale
 		canvas.scale = clamp(scale, 0.1, 10.0)
@@ -91,6 +129,10 @@ update_canvas :: proc(canvas: ^Canvas) {
 		canvas.offset.y = canvas.last_offset.y + (mouse_pos.y - canvas.drag_start.y)
 	} else {
 		canvas.is_dragging = false
+	}
+
+	if !canvas.is_dragging {
+		update_resize_handles(canvas)
 	}
 }
 
@@ -132,6 +174,8 @@ draw_canvas :: proc(canvas: ^Canvas) {
 
 	rl.DrawTexturePro(canvas.texture.texture, source_rect, dest_rect, {0, 0}, 0.0, rl.WHITE)
 	rl.DrawRectangleLinesEx(dest_rect, 1, rl.BLACK)
+
+	draw_resize_handles(canvas)
 }
 
 create_draw_state :: proc() -> DrawState {
@@ -254,6 +298,155 @@ update_drawing :: proc(state: ^State, canvas_pos: rl.Vector2, color: rl.Color) {
 			)
 			push_op(&state.canvas, stroke_op)
 			reset_drawing(&state.draw_state)
+		}
+	}
+}
+
+load_image_to_canvas :: proc(canvas: ^Canvas, filepath: cstring) -> bool {
+	image := rl.LoadImage(filepath)
+	if image.data == nil {
+		return false
+	}
+	defer rl.UnloadImage(image)
+
+	if image.format != .UNCOMPRESSED_R8G8B8A8 {
+		rl.ImageFormat(&image, .UNCOMPRESSED_R8G8B8A8)
+	}
+
+	if is_canvas_empty(canvas) {
+		// If canvas is empty, resize it to match the image
+		resize_canvas(canvas, image.width, image.height)
+
+		// Draw the image directly
+		texture := rl.LoadTextureFromImage(image)
+		defer rl.UnloadTexture(texture)
+
+		rl.BeginTextureMode(canvas.texture)
+		rl.DrawTexture(texture, 0, 0, rl.WHITE)
+		rl.EndTextureMode()
+	} else {
+		// If canvas has content, paste image at cursor position
+		mouse_pos := window_to_canvas_coords(canvas, rl.GetMousePosition())
+
+		texture := rl.LoadTextureFromImage(image)
+		defer rl.UnloadTexture(texture)
+
+		rl.BeginTextureMode(canvas.texture)
+		source_rect := rl.Rectangle{0, 0, f32(image.width), f32(image.height)}
+		dest_rect := rl.Rectangle {
+			mouse_pos.x - f32(image.width) / 2,
+			mouse_pos.y - f32(image.height) / 2,
+			f32(image.width),
+			f32(image.height),
+		}
+		rl.DrawTexturePro(texture, source_rect, dest_rect, {0, 0}, 0, rl.WHITE)
+		rl.EndTextureMode()
+	}
+
+	return true
+}
+
+draw_resize_handles :: proc(canvas: ^Canvas) {
+	if canvas.scale <= 0 do return
+
+	// Calculate canvas corners in screen space
+	canvas_rect := get_canvas_rect(canvas)
+	handle_color := rl.BLACK
+
+	// Draw corner handles
+	corners := [][2]rl.Vector2 {
+		{
+			{canvas_rect.x - HANDLE_SIZE, canvas_rect.y - HANDLE_SIZE},
+			{canvas_rect.x + HANDLE_SIZE, canvas_rect.y + HANDLE_SIZE},
+		}, // Top-left
+		{
+			{canvas_rect.x + canvas_rect.width - HANDLE_SIZE, canvas_rect.y - HANDLE_SIZE},
+			{canvas_rect.x + canvas_rect.width + HANDLE_SIZE, canvas_rect.y + HANDLE_SIZE},
+		}, // Top-right
+		{
+			{canvas_rect.x - HANDLE_SIZE, canvas_rect.y + canvas_rect.height - HANDLE_SIZE},
+			{canvas_rect.x + HANDLE_SIZE, canvas_rect.y + canvas_rect.height + HANDLE_SIZE},
+		}, // Bottom-left
+		{
+			{
+				canvas_rect.x + canvas_rect.width - HANDLE_SIZE,
+				canvas_rect.y + canvas_rect.height - HANDLE_SIZE,
+			},
+			{
+				canvas_rect.x + canvas_rect.width + HANDLE_SIZE,
+				canvas_rect.y + canvas_rect.height + HANDLE_SIZE,
+			},
+		}, // Bottom-right
+	}
+
+	for corner in corners {
+		rl.DrawRectangle(
+			i32(corner[0].x),
+			i32(corner[0].y),
+			HANDLE_SIZE * 2,
+			HANDLE_SIZE * 2,
+			handle_color,
+		)
+	}
+}
+
+get_canvas_rect :: proc(canvas: ^Canvas) -> rl.Rectangle {
+	return {
+		x = canvas.position.x,
+		y = canvas.position.y,
+		width = f32(canvas.width),
+		height = f32(canvas.height),
+	}
+}
+
+update_resize_handles :: proc(canvas: ^Canvas) {
+	if canvas.is_resizing {
+		mouse_pos := rl.GetMousePosition()
+		canvas_rect := get_canvas_rect(canvas)
+
+		#partial switch canvas.resize_handle {
+		case .BottomRight:
+			new_width := i32((mouse_pos.x - canvas_rect.x) / canvas.scale)
+			new_height := i32((mouse_pos.y - canvas_rect.y) / canvas.scale)
+			if new_width > 100 && new_height > 100 {
+				resize_canvas(canvas, new_width, new_height)
+			}
+		case .TopLeft, .TopRight, .BottomLeft:
+		// Implement other corner resizing if needed
+		case .None:
+		// Do nothing
+		}
+
+		if !rl.IsMouseButtonDown(.LEFT) {
+			canvas.is_resizing = false
+			canvas.resize_handle = .None
+			rl.SetMouseCursor(.ARROW)
+		}
+	} else {
+		// Check if mouse is over any resize handle
+		mouse_pos := rl.GetMousePosition()
+		canvas_rect := get_canvas_rect(canvas)
+
+		check_corner :: proc(pos: rl.Vector2, corner_x, corner_y: f32) -> bool {
+			return rl.CheckCollisionPointRec(
+				pos,
+				{corner_x - HANDLE_SIZE, corner_y - HANDLE_SIZE, HANDLE_SIZE * 2, HANDLE_SIZE * 2},
+			)
+		}
+
+		if check_corner(
+			mouse_pos,
+			canvas_rect.x + canvas_rect.width,
+			canvas_rect.y + canvas_rect.height,
+		) {
+			rl.SetMouseCursor(.POINTING_HAND)
+			if rl.IsMouseButtonPressed(.LEFT) {
+				canvas.resize_handle = .BottomRight
+				canvas.is_resizing = true
+			}
+			// Add other corners if needed
+		} else {
+			rl.SetMouseCursor(.ARROW)
 		}
 	}
 }

@@ -7,6 +7,11 @@ import rl "vendor:raylib"
 update :: proc() {
 	state.window_size = {f32(rl.GetScreenWidth()), f32(rl.GetScreenHeight())}
 
+	// Handle dropped files
+	if (rl.IsFileDropped()) {
+		handle_file_drop()
+	}
+
 	ctrl_pressed := rl.IsKeyDown(.LEFT_CONTROL) || rl.IsKeyDown(.RIGHT_CONTROL)
 	#partial switch ODIN_OS {
 	case .Darwin:
@@ -82,9 +87,6 @@ draw :: proc() {
 
 @(export)
 paint_update :: proc() -> bool {
-	if rl.IsFileDropped() {
-		rl.UnloadFont(ui_font) // Clean up old font before loading new one
-	}
 	update()
 	draw()
 	return !rl.WindowShouldClose()
@@ -114,7 +116,7 @@ paint_init :: proc() {
 		show_grid       = true,
 		zoom_level      = 1.0,
 		window_size     = {1280, 720},
-		canvas          = create_canvas(1920, 1080),
+		canvas          = create_canvas(800, 600),
 		draw_state      = create_draw_state(),
 	}
 
