@@ -7,6 +7,36 @@ import rl "vendor:raylib"
 update :: proc() {
 	state.window_size = {f32(rl.GetScreenWidth()), f32(rl.GetScreenHeight())}
 
+	ctrl_pressed := rl.IsKeyDown(.LEFT_CONTROL) || rl.IsKeyDown(.RIGHT_CONTROL)
+	#partial switch ODIN_OS {
+	case .Darwin:
+		// On macOS, use Command instead of Control
+		ctrl_pressed = rl.IsKeyDown(.LEFT_SUPER) || rl.IsKeyDown(.RIGHT_SUPER)
+	}
+
+	// Check for undo combo
+	if ctrl_pressed && rl.IsKeyDown(.Z) && !rl.IsKeyDown(.LEFT_SHIFT) {
+		if !state.is_undo_combo_active {
+			undo(&state.canvas)
+			state.is_undo_combo_active = true
+		}
+	} else {
+		state.is_undo_combo_active = false
+	}
+
+	// Check for redo combo (Ctrl+Y or Ctrl+Shift+Z)
+	redo_pressed :=
+		ctrl_pressed && (rl.IsKeyDown(.Y) || (rl.IsKeyDown(.LEFT_SHIFT) && rl.IsKeyDown(.Z)))
+	if redo_pressed {
+		if !state.is_redo_combo_active {
+			redo(&state.canvas)
+			state.is_redo_combo_active = true
+		}
+	} else {
+		state.is_redo_combo_active = false
+	}
+
+
 	update_canvas(&state.canvas)
 
 	mouse_pos := rl.GetMousePosition()

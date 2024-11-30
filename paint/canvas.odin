@@ -1,6 +1,7 @@
 package paint
 
 import "core:fmt"
+import "core:time"
 import rl "vendor:raylib"
 
 POINT_DISTANCE_MIN :: 2.0 // Minimum distance between points
@@ -24,19 +25,21 @@ Canvas :: struct {
 	is_dragging: bool,
 	drag_start:  rl.Vector2,
 	last_offset: rl.Vector2,
+	history:     History,
 }
 
 create_canvas :: proc(width, height: i32) -> Canvas {
 	canvas := Canvas {
-		texture     = rl.LoadRenderTexture(width, height),
-		width       = width,
-		height      = height,
-		position    = {TOOLBAR_WIDTH, MENUBAR_HEIGHT},
-		scale       = 1.0,
-		offset      = {0.0, 0.0},
+		texture = rl.LoadRenderTexture(width, height),
+		width = width,
+		height = height,
+		position = {TOOLBAR_WIDTH, MENUBAR_HEIGHT},
+		scale = 1.0,
+		offset = {0.0, 0.0},
 		is_dragging = false,
-		drag_start  = {0.0, 0.0},
+		drag_start = {0.0, 0.0},
 		last_offset = {0.0, 0.0},
+		history = {operations = make([dynamic]Operation), max_entries = 10, curr_index = 0},
 	}
 
 	rl.BeginTextureMode(canvas.texture)
@@ -239,6 +242,17 @@ update_drawing :: proc(state: ^State, canvas_pos: rl.Vector2, color: rl.Color) {
 				rl.DrawCircleV(state.draw_state.points[0], f32(state.brush_size), color)
 				rl.EndTextureMode()
 			}
+			copied_points := clone_points(state.draw_state.points[:])
+
+			stroke_op := Operation(
+				StrokeOperation {
+					info = {type = OperationType.Stroke, timestamp = time.now()._nsec},
+					points = copied_points,
+					color = state.primary_color,
+					size = i32(state.brush_size),
+				},
+			)
+			push_op(&state.canvas, stroke_op)
 			reset_drawing(&state.draw_state)
 		}
 	}
