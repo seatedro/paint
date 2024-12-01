@@ -100,7 +100,7 @@ paint_init_window :: proc() {
 	rl.SetWindowPosition(0, 0)
 	rl.SetTargetFPS(60)
 
-	ui_font = rl.LoadFontEx(cstring("assets/microsoftsansserif.ttf"), FONT_SIZE, nil, 0)
+	ui_font = rl.LoadFontEx(cstring("assets/W95FA.otf"), FONT_SIZE, nil, 0)
 }
 
 @(export)
@@ -151,7 +151,7 @@ paint_memory_size :: proc() -> int {
 @(export)
 paint_hot_reloaded :: proc(mem: rawptr) {
 	state = (^State)(mem)
-	ui_font = rl.LoadFontEx(cstring("assets/microsoftsansserif.ttf"), FONT_SIZE, nil, 0)
+	ui_font = rl.LoadFontEx(cstring("assets/W95FA.otf"), FONT_SIZE, nil, 0)
 }
 
 @(export)

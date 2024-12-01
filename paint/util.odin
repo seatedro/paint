@@ -21,7 +21,7 @@ handle_file_drop :: proc() {
 	defer rl.UnloadDroppedFiles(files)
 
 	if files.count > 0 {
-		success := load_image_to_canvas(&state.canvas, files.paths[0])
+		success := draw_image(&state.canvas, files.paths[0])
 		if !success {
 			//TODO: Show an error dialog
 			fmt.println("failed to load image:", files.paths[0])
@@ -30,15 +30,18 @@ handle_file_drop :: proc() {
 }
 
 is_canvas_empty :: proc(canvas: ^Canvas) -> bool {
-	image := rl.LoadImageFromTexture(canvas.texture.texture)
-	defer rl.UnloadImage(image)
+	if canvas.dirty {
+		image := rl.LoadImageFromTexture(canvas.texture.texture)
+		defer rl.UnloadImage(image)
 
-	pixels := ([^]rl.Color)(image.data)
-	for i := 0; i32(i) < image.width * image.height; i += 1 {
-		pixel := pixels[i]
-		if pixel.r != 255 || pixel.g != 255 || pixel.b != 255 || pixel.a != 255 {
-			return false
+		pixels := ([^]rl.Color)(image.data)
+		for i := 0; i32(i) < image.width * image.height; i += 1 {
+			pixel := pixels[i]
+			if pixel.r != 255 || pixel.g != 255 || pixel.b != 255 || pixel.a != 255 {
+				return false
+			}
 		}
+		return true
 	}
 	return true
 }

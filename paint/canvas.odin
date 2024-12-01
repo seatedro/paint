@@ -28,6 +28,7 @@ Canvas :: struct {
 	history:       History,
 	resize_handle: ResizeHandle,
 	is_resizing:   bool,
+	dirty:         bool,
 }
 
 ResizeHandle :: enum {
@@ -60,6 +61,10 @@ create_canvas :: proc(width, height: i32) -> Canvas {
 }
 
 destroy_canvas :: proc(canvas: ^Canvas) {
+	for op in canvas.history.operations {
+		destroy_op(op)
+	}
+	delete(canvas.history.operations)
 	rl.UnloadRenderTexture(canvas.texture)
 }
 
@@ -302,20 +307,35 @@ update_drawing :: proc(state: ^State, canvas_pos: rl.Vector2, color: rl.Color) {
 	}
 }
 
-load_image_to_canvas :: proc(canvas: ^Canvas, filepath: cstring) -> bool {
+draw_image_at :: proc(canvas: ^Canvas, image: rl.Image, pos: rl.Vector2) {
+	texture := rl.LoadTextureFromImage(image)
+	defer rl.UnloadTexture(texture)
+
+	rl.BeginTextureMode(canvas.texture)
+	defer rl.EndTextureMode()
+
+	source_rect := rl.Rectangle{0, 0, f32(image.width), f32(image.height)}
+	dest_rect := rl.Rectangle{pos.x, pos.y, f32(image.width), f32(image.height)}
+	rl.DrawTexturePro(texture, source_rect, dest_rect, {0, 0}, 0, rl.WHITE)
+}
+
+
+draw_image :: proc(canvas: ^Canvas, filepath: cstring) -> bool {
 	image := rl.LoadImage(filepath)
 	if image.data == nil {
 		return false
 	}
-	defer rl.UnloadImage(image)
+	// defer rl.UnloadImage(image)
 
 	if image.format != .UNCOMPRESSED_R8G8B8A8 {
 		rl.ImageFormat(&image, .UNCOMPRESSED_R8G8B8A8)
 	}
 
+	pos: rl.Vector2
 	if is_canvas_empty(canvas) {
 		// If canvas is empty, resize it to match the image
 		resize_canvas(canvas, image.width, image.height)
+		pos = {0, 0}
 
 		// Draw the image directly
 		texture := rl.LoadTextureFromImage(image)
@@ -327,21 +347,29 @@ load_image_to_canvas :: proc(canvas: ^Canvas, filepath: cstring) -> bool {
 	} else {
 		// If canvas has content, paste image at cursor position
 		mouse_pos := window_to_canvas_coords(canvas, rl.GetMousePosition())
+		pos = {mouse_pos.x - f32(image.width) / 2, mouse_pos.y - f32(image.height) / 2}
 
 		texture := rl.LoadTextureFromImage(image)
 		defer rl.UnloadTexture(texture)
 
 		rl.BeginTextureMode(canvas.texture)
 		source_rect := rl.Rectangle{0, 0, f32(image.width), f32(image.height)}
-		dest_rect := rl.Rectangle {
-			mouse_pos.x - f32(image.width) / 2,
-			mouse_pos.y - f32(image.height) / 2,
-			f32(image.width),
-			f32(image.height),
-		}
+		dest_rect := rl.Rectangle{pos.x, pos.y, f32(image.width), f32(image.height)}
 		rl.DrawTexturePro(texture, source_rect, dest_rect, {0, 0}, 0, rl.WHITE)
 		rl.EndTextureMode()
 	}
+
+	// Create and store the operation for undo/redo
+	img_op := Operation(
+		ImageOperation {
+			info = {type = OperationType.Image, timestamp = time.now()._nsec},
+			image = image,
+			width = image.width,
+			height = image.height,
+			pos = pos,
+		},
+	)
+	push_op(canvas, img_op)
 
 	return true
 }
