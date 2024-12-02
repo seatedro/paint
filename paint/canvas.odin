@@ -44,7 +44,11 @@ create_canvas :: proc(width, height: i32) -> Canvas {
 		texture = rl.LoadRenderTexture(width, height),
 		width = width,
 		height = height,
-		position = {TOOLBAR_WIDTH, MENUBAR_HEIGHT},
+		position = {
+			TOOLBAR_WIDTH + (f32(rl.GetScreenWidth() - TOOLBAR_WIDTH) - f32(width)) / 2,
+			MENUBAR_HEIGHT +
+			(f32(rl.GetScreenHeight() - MENUBAR_HEIGHT - STATUSBAR_HEIGHT) - f32(height)) / 2,
+		},
 		scale = 1.0,
 		offset = {0.0, 0.0},
 		is_dragging = false,
@@ -420,8 +424,8 @@ draw_resize_handles :: proc(canvas: ^Canvas) {
 
 get_canvas_rect :: proc(canvas: ^Canvas) -> rl.Rectangle {
 	return {
-		x = canvas.position.x,
-		y = canvas.position.y,
+		x = canvas.position.x + canvas.offset.x,
+		y = canvas.position.y + canvas.offset.y,
 		width = f32(canvas.width),
 		height = f32(canvas.height),
 	}
