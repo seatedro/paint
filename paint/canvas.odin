@@ -1,5 +1,6 @@
 package paint
 
+import "core:math"
 import "core:time"
 import rl "vendor:raylib"
 
@@ -7,6 +8,7 @@ POINT_DISTANCE_MIN :: 2.0 // Minimum distance between points
 SPLINE_SEGMENTS :: 20 // Number of segments per spline curve
 SMOOTH_FACTOR :: 0.25
 HANDLE_SIZE :: 5
+CAMERA_ANGLE :: math.PI / 6.0 // 30 degrees in radians
 
 DrawState :: struct {
 	smooth_lines: bool,
@@ -17,11 +19,16 @@ DrawState :: struct {
 
 Canvas :: struct {
 	texture:       rl.RenderTexture2D, // Main Canvas
-	width:         i32,
-	height:        i32,
-	position:      rl.Vector2, // Canvas Position in window
-	scale:         f32, // zoom
-	offset:        rl.Vector2, // pan
+	container:     struct {
+		width, height: i32,
+		position:      rl.Vector2, // Canvas Position in window
+	},
+	camera:        struct {
+		x, y, z: f32, // distancce from camera to canvas
+	},
+	pointer:       struct {
+		x, y: f32,
+	},
 	is_dragging:   bool,
 	drag_start:    rl.Vector2,
 	last_offset:   rl.Vector2,
@@ -29,6 +36,13 @@ Canvas :: struct {
 	resize_handle: ResizeHandle,
 	is_resizing:   bool,
 	dirty:         bool,
+	pixel_ratio:   f32,
+	mode:          CanvasMode,
+}
+
+CanvasMode :: enum {
+	Fixed,
+	Infinite,
 }
 
 ResizeHandle :: enum {
@@ -39,18 +53,29 @@ ResizeHandle :: enum {
 	BottomRight,
 }
 
-create_canvas :: proc(width, height: i32) -> Canvas {
+ScreenCoords :: struct {
+	x, y:          f32, // Position
+	width, height: f32, // Dimensions
+}
+
+create_canvas :: proc(width, height: i32, infinite := false, mode := CanvasMode.Fixed) -> Canvas {
+	container_width := i32(rl.GetScreenWidth() - TOOLBAR_WIDTH)
+	container_height := i32(rl.GetScreenHeight() - MENUBAR_HEIGHT - STATUSBAR_HEIGHT)
+
 	canvas := Canvas {
+		mode = mode,
 		texture = rl.LoadRenderTexture(width, height),
-		width = width,
-		height = height,
-		position = {
-			TOOLBAR_WIDTH + (f32(rl.GetScreenWidth() - TOOLBAR_WIDTH) - f32(width)) / 2,
-			MENUBAR_HEIGHT +
-			(f32(rl.GetScreenHeight() - MENUBAR_HEIGHT - STATUSBAR_HEIGHT) - f32(height)) / 2,
+		container = {
+			width = container_width,
+			height = container_height,
+			position = {TOOLBAR_WIDTH, MENUBAR_HEIGHT},
 		},
-		scale = 1.0,
-		offset = {0.0, 0.0},
+		camera = {
+			x = f32(width) / 2, // Center on canvas
+			y = f32(height) / 2,
+			z = f32(container_width) / (2 * math.tan_f32(CAMERA_ANGLE)), // Initial zoom to fit
+		},
+		pixel_ratio = 1.0, // TODO: Handle high DPI
 		is_dragging = false,
 		drag_start = {0.0, 0.0},
 		last_offset = {0.0, 0.0},
@@ -73,12 +98,12 @@ destroy_canvas :: proc(canvas: ^Canvas) {
 }
 
 resize_canvas :: proc(canvas: ^Canvas, new_width, new_height: i32) {
+	if canvas.mode != .Fixed do return
+
 	old_texture := canvas.texture
 	defer rl.UnloadRenderTexture(old_texture)
 
 	canvas.texture = rl.LoadRenderTexture(new_width, new_height)
-	canvas.width = new_width
-	canvas.height = new_height
 
 	// Clear new canvas to white
 	rl.BeginTextureMode(canvas.texture)
@@ -100,30 +125,25 @@ resize_canvas :: proc(canvas: ^Canvas, new_width, new_height: i32) {
 	rl.DrawTexturePro(old_texture.texture, source_rect, dest_rect, {0, 0}, 0, rl.WHITE)
 
 	rl.EndTextureMode()
+
+	// Update camera for new dimensions
+	canvas.camera.x = f32(new_width) / 2
+	canvas.camera.y = f32(new_height) / 2
 }
 
 update_canvas :: proc(canvas: ^Canvas) {
 	// Handle zooming
 	wheel := rl.GetMouseWheelMove()
 	if rl.IsKeyDown(.LEFT_CONTROL) && wheel != 0.0 {
-		scale := canvas.scale
-		if wheel >= 0.0 {
-			scale *= 1.1
-		} else {
-			scale *= 0.9
-		}
+		// Scale zoom amount
+		zoom_factor: f32 = 50.0
+		delta_z := -wheel * zoom_factor
 
-		old_scale := canvas.scale
-		canvas.scale = clamp(scale, 0.1, 10.0)
+		// Get current pointer position for anchor point
+		mouse_pos := rl.GetMousePosition()
+		canvas_pos := window_to_canvas_coords(canvas, mouse_pos)
 
-		if old_scale != scale {
-			mouse_pos := rl.GetMousePosition()
-			zoom_center_x := (mouse_pos.x - canvas.position.x - canvas.offset.x) / old_scale
-			zoom_center_y := (mouse_pos.y - canvas.position.y - canvas.offset.y) / old_scale
-
-			canvas.offset.x = mouse_pos.x - canvas.position.x - (zoom_center_x * scale)
-			canvas.offset.y = mouse_pos.y - canvas.position.y - (zoom_center_y * scale)
-		}
+		scale_with_anchor(canvas, canvas_pos.x, canvas_pos.y, delta_z)
 	}
 
 	// Handle Panning
@@ -131,13 +151,35 @@ update_canvas :: proc(canvas: ^Canvas) {
 		if !canvas.is_dragging {
 			canvas.is_dragging = true
 			canvas.drag_start = rl.GetMousePosition()
-			canvas.last_offset = canvas.offset
+
+			if canvas.mode == .Fixed {
+				clamp_camera_bounds(canvas)
+			}
 		}
+
 		mouse_pos := rl.GetMousePosition()
-		canvas.offset.x = canvas.last_offset.x + (mouse_pos.x - canvas.drag_start.x)
-		canvas.offset.y = canvas.last_offset.y + (mouse_pos.y - canvas.drag_start.y)
+		// Get scale for proper movement conversion
+		screen := camera_to_screen_coords(canvas)
+		scale_x, scale_y := get_scale(canvas, screen)
+
+		// Calculate movement in canvas space
+		delta_x := (mouse_pos.x - canvas.drag_start.x) / scale_x
+		delta_y := (mouse_pos.y - canvas.drag_start.y) / scale_y
+
+		// Update camera position
+		canvas.camera.x -= delta_x
+		canvas.camera.y -= delta_y
+
+		canvas.drag_start = mouse_pos
 	} else {
 		canvas.is_dragging = false
+	}
+
+	// Update pointer position
+	mouse_pos := rl.GetMousePosition()
+	canvas.pointer = {
+		x = (mouse_pos.x - canvas.container.position.x),
+		y = (mouse_pos.y - canvas.container.position.y),
 	}
 
 	if !canvas.is_dragging {
@@ -146,45 +188,101 @@ update_canvas :: proc(canvas: ^Canvas) {
 }
 
 window_to_canvas_coords :: proc(canvas: ^Canvas, window_pos: rl.Vector2) -> rl.Vector2 {
-	return {
-		(window_pos.x - canvas.position.x - canvas.offset.x) / canvas.scale,
-		(window_pos.y - canvas.position.y - canvas.offset.y) / canvas.scale,
+	screen := camera_to_screen_coords(canvas)
+	scale_x, scale_y := get_scale(canvas, screen)
+
+	// Adjust for container position and scale
+	x := (window_pos.x - canvas.container.position.x) / scale_x + screen.x
+	y := (window_pos.y - canvas.container.position.y) / scale_y + screen.y
+
+	return {x, y}
+}
+
+camera_to_screen_coords :: proc(canvas: ^Canvas) -> ScreenCoords {
+	aspect := f32(canvas.container.width) / f32(canvas.container.height)
+	width := 2 * canvas.camera.z * math.tan_f32(CAMERA_ANGLE)
+	height := width / aspect
+
+	return ScreenCoords {
+		x = canvas.camera.x - width / 2,
+		y = canvas.camera.y - height / 2,
+		width = width,
+		height = height,
 	}
 }
 
+// Scale camera while maintaining focus point
+scale_with_anchor :: proc(canvas: ^Canvas, anchor_x, anchor_y: f32, delta_z: f32) {
+	old_screen := camera_to_screen_coords(canvas)
+	old_scale_x, old_scale_y := get_scale(canvas, old_screen)
+
+	// Calculate new camera position
+	new_z := canvas.camera.z + delta_z
+	new_screen := camera_to_screen_coords(canvas)
+	new_scale_x, new_scale_y := get_scale(canvas, new_screen)
+
+	// Adjust camera position to maintain anchor point
+	canvas.camera.x =
+		(anchor_x * (new_scale_x - old_scale_x) + old_scale_x * canvas.camera.x) / new_scale_x
+	canvas.camera.y =
+		(anchor_y * (new_scale_y - old_scale_y) + old_scale_y * canvas.camera.y) / new_scale_y
+	canvas.camera.z = new_z
+}
+
+get_scale :: proc(canvas: ^Canvas, screen: ScreenCoords) -> (f32, f32) {
+	return f32(canvas.container.width) / screen.width, f32(canvas.container.height) / screen.height
+}
+
+// Add bounds checking for fixed canvas mode
+clamp_camera_bounds :: proc(canvas: ^Canvas) {
+	if canvas.mode != .Fixed do return
+
+	// Get current screen coordinates
+	// screen := camera_to_screen_coords(canvas)
+	// scale_x, scale_y := get_scale(canvas, screen)
+
+	// Calculate bounds to keep canvas in view
+	min_x := f32(canvas.texture.texture.width) * 0.1 // Allow 10% overflow
+	min_y := f32(canvas.texture.texture.height) * 0.1
+	max_x := f32(canvas.texture.texture.width) * 0.9
+	max_y := f32(canvas.texture.texture.height) * 0.9
+
+	// Clamp camera position
+	canvas.camera.x = clamp(canvas.camera.x, min_x, max_x)
+	canvas.camera.y = clamp(canvas.camera.y, min_y, max_y)
+
+	// Limit zoom for fixed canvas
+	min_z := f32(canvas.container.width) / (2 * math.tan_f32(CAMERA_ANGLE)) // Full view
+	max_z := min_z * 10 // Maximum 10x zoom
+	canvas.camera.z = clamp(canvas.camera.z, min_z, max_z)
+}
+
 draw_canvas :: proc(canvas: ^Canvas) {
+	screen := camera_to_screen_coords(canvas)
+	scale_x, scale_y := get_scale(canvas, screen)
+
+	// Draw canvas texture
 	source_rect := rl.Rectangle {
 		0,
 		0,
 		f32(canvas.texture.texture.width),
-		-f32(canvas.texture.texture.height), // Flips texture
+		-f32(canvas.texture.texture.height), // Flip texture
 	}
+
 	dest_rect := rl.Rectangle {
-		canvas.position.x + canvas.offset.x,
-		canvas.position.y + canvas.offset.y,
-		f32(canvas.width) * canvas.scale,
-		f32(canvas.height) * canvas.scale,
+		x      = canvas.container.position.x - screen.x * scale_x,
+		y      = canvas.container.position.y - screen.y * scale_y,
+		width  = f32(canvas.texture.texture.width) * scale_x,
+		height = f32(canvas.texture.texture.height) * scale_y,
 	}
 
-	if state.show_grid {
-		grid_size := i32(10 * canvas.scale)
-		start_x := i32(dest_rect.x)
-		start_y := i32(dest_rect.y)
-		end_x := start_x + i32(dest_rect.width)
-		end_y := start_y + i32(dest_rect.height)
-
-		for y := start_y; y < end_y; y += grid_size {
-			for x := start_x; x < end_x; x += grid_size {
-				color := (((x / grid_size + y / grid_size) % 2) == 0) ? rl.LIGHTGRAY : rl.WHITE
-				rl.DrawRectangle(x, y, grid_size, grid_size, color)
-			}
-		}
+	// Draw canvas border in fixed mode
+	if canvas.mode == .Fixed {
+		rl.DrawRectangleLinesEx(dest_rect, 1, rl.BLACK)
+		draw_resize_handles(canvas, dest_rect)
 	}
 
 	rl.DrawTexturePro(canvas.texture.texture, source_rect, dest_rect, {0, 0}, 0.0, rl.WHITE)
-	rl.DrawRectangleLinesEx(dest_rect, 1, rl.BLACK)
-
-	draw_resize_handles(canvas)
 }
 
 create_draw_state :: proc() -> DrawState {
@@ -264,50 +362,48 @@ draw_stroke :: proc(canvas: ^Canvas, points: []rl.Vector2, color: rl.Color, size
 	rl.DrawCircleV(points[len(points) - 1], f32(size) / 2, color)
 }
 
-update_drawing :: proc(state: ^State, canvas_pos: rl.Vector2, color: rl.Color) {
+update_drawing :: proc(state: ^State, color: rl.Color) {
+	if state.canvas.is_dragging do return
 
-	if canvas_pos.x >= 0 &&
-	   canvas_pos.x < f32(state.canvas.width) &&
-	   canvas_pos.y >= 0 &&
-	   canvas_pos.y < f32(state.canvas.height) {
-		if state.canvas.is_dragging do return
+	mouse_pos := rl.GetMousePosition()
+	canvas_pos := window_to_canvas_coords(&state.canvas, mouse_pos)
 
-		if rl.IsMouseButtonDown(.LEFT) {
-			if !state.draw_state.is_drawing {
-				state.draw_state.is_drawing = true
-				clear(&state.draw_state.points)
-				add_point(&state.draw_state, canvas_pos)
-			} else {
-				add_point(&state.draw_state, canvas_pos)
-				if len(state.draw_state.points) > 0 {
-					draw_stroke(
-						&state.canvas,
-						state.draw_state.points[:],
-						state.primary_color,
-						i32(state.brush_size),
-					)
-				}
+	// Rest of drawing logic remains the same
+	if rl.IsMouseButtonDown(.LEFT) {
+		if !state.draw_state.is_drawing {
+			state.draw_state.is_drawing = true
+			clear(&state.draw_state.points)
+			add_point(&state.draw_state, canvas_pos)
+		} else {
+			add_point(&state.draw_state, canvas_pos)
+			if len(state.draw_state.points) > 0 {
+				draw_stroke(
+					&state.canvas,
+					state.draw_state.points[:],
+					color,
+					i32(state.brush_size),
+				)
 			}
-		} else if state.draw_state.is_drawing {
-			// If we only had one point and we let go, it was a tap
-			if len(state.draw_state.points) == 1 {
-				rl.BeginTextureMode(state.canvas.texture)
-				rl.DrawCircleV(state.draw_state.points[0], f32(state.brush_size), color)
-				rl.EndTextureMode()
-			}
-			copied_points := clone_points(state.draw_state.points[:])
-
-			stroke_op := Operation(
-				StrokeOperation {
-					info = {type = OperationType.Stroke, timestamp = time.now()._nsec},
-					points = copied_points,
-					color = state.primary_color,
-					size = i32(state.brush_size),
-				},
-			)
-			push_op(&state.canvas, stroke_op)
-			reset_drawing(&state.draw_state)
 		}
+	} else if state.draw_state.is_drawing {
+		// Handle stroke completion - same as before
+		if len(state.draw_state.points) == 1 {
+			rl.BeginTextureMode(state.canvas.texture)
+			rl.DrawCircleV(state.draw_state.points[0], f32(state.brush_size), color)
+			rl.EndTextureMode()
+		}
+
+		copied_points := clone_points(state.draw_state.points[:])
+		stroke_op := Operation(
+			StrokeOperation {
+				info = {type = OperationType.Stroke, timestamp = time.now()._nsec},
+				points = copied_points,
+				color = color,
+				size = i32(state.brush_size),
+			},
+		)
+		push_op(&state.canvas, stroke_op)
+		reset_drawing(&state.draw_state)
 	}
 }
 
@@ -378,35 +474,33 @@ draw_image :: proc(canvas: ^Canvas, filepath: cstring) -> bool {
 	return true
 }
 
-draw_resize_handles :: proc(canvas: ^Canvas) {
-	if canvas.scale <= 0 do return
+draw_resize_handles :: proc(canvas: ^Canvas, dest_rect: rl.Rectangle) {
+	if canvas.mode != .Fixed do return
 
-	// Calculate canvas corners in screen space
-	canvas_rect := get_canvas_rect(canvas)
 	handle_color := rl.BLACK
 
 	// Draw corner handles
 	corners := [][2]rl.Vector2 {
 		{
-			{canvas_rect.x - HANDLE_SIZE, canvas_rect.y - HANDLE_SIZE},
-			{canvas_rect.x + HANDLE_SIZE, canvas_rect.y + HANDLE_SIZE},
+			{dest_rect.x - HANDLE_SIZE, dest_rect.y - HANDLE_SIZE},
+			{dest_rect.x + HANDLE_SIZE, dest_rect.y + HANDLE_SIZE},
 		}, // Top-left
 		{
-			{canvas_rect.x + canvas_rect.width - HANDLE_SIZE, canvas_rect.y - HANDLE_SIZE},
-			{canvas_rect.x + canvas_rect.width + HANDLE_SIZE, canvas_rect.y + HANDLE_SIZE},
+			{dest_rect.x + dest_rect.width - HANDLE_SIZE, dest_rect.y - HANDLE_SIZE},
+			{dest_rect.x + dest_rect.width + HANDLE_SIZE, dest_rect.y + HANDLE_SIZE},
 		}, // Top-right
 		{
-			{canvas_rect.x - HANDLE_SIZE, canvas_rect.y + canvas_rect.height - HANDLE_SIZE},
-			{canvas_rect.x + HANDLE_SIZE, canvas_rect.y + canvas_rect.height + HANDLE_SIZE},
+			{dest_rect.x - HANDLE_SIZE, dest_rect.y + dest_rect.height - HANDLE_SIZE},
+			{dest_rect.x + HANDLE_SIZE, dest_rect.y + dest_rect.height + HANDLE_SIZE},
 		}, // Bottom-left
 		{
 			{
-				canvas_rect.x + canvas_rect.width - HANDLE_SIZE,
-				canvas_rect.y + canvas_rect.height - HANDLE_SIZE,
+				dest_rect.x + dest_rect.width - HANDLE_SIZE,
+				dest_rect.y + dest_rect.height - HANDLE_SIZE,
 			},
 			{
-				canvas_rect.x + canvas_rect.width + HANDLE_SIZE,
-				canvas_rect.y + canvas_rect.height + HANDLE_SIZE,
+				dest_rect.x + dest_rect.width + HANDLE_SIZE,
+				dest_rect.y + dest_rect.height + HANDLE_SIZE,
 			},
 		}, // Bottom-right
 	}
@@ -422,24 +516,17 @@ draw_resize_handles :: proc(canvas: ^Canvas) {
 	}
 }
 
-get_canvas_rect :: proc(canvas: ^Canvas) -> rl.Rectangle {
-	return {
-		x = canvas.position.x + canvas.offset.x,
-		y = canvas.position.y + canvas.offset.y,
-		width = f32(canvas.width),
-		height = f32(canvas.height),
-	}
-}
-
 update_resize_handles :: proc(canvas: ^Canvas) {
+	if canvas.mode != .Fixed do return
+
 	if canvas.is_resizing {
 		mouse_pos := rl.GetMousePosition()
-		canvas_rect := get_canvas_rect(canvas)
+		canvas_pos := window_to_canvas_coords(canvas, mouse_pos)
 
 		#partial switch canvas.resize_handle {
 		case .BottomRight:
-			new_width := i32((mouse_pos.x - canvas_rect.x) / canvas.scale)
-			new_height := i32((mouse_pos.y - canvas_rect.y) / canvas.scale)
+			new_width := i32(canvas_pos.x)
+			new_height := i32(canvas_pos.y)
 			if new_width > 100 && new_height > 100 {
 				resize_canvas(canvas, new_width, new_height)
 			}
@@ -457,7 +544,8 @@ update_resize_handles :: proc(canvas: ^Canvas) {
 	} else {
 		// Check if mouse is over any resize handle
 		mouse_pos := rl.GetMousePosition()
-		canvas_rect := get_canvas_rect(canvas)
+		// screen := camera_to_screen_coords(canvas)
+		// scale_x, scale_y := get_scale(canvas, screen)
 
 		check_corner :: proc(pos: rl.Vector2, corner_x, corner_y: f32) -> bool {
 			return rl.CheckCollisionPointRec(
@@ -466,6 +554,7 @@ update_resize_handles :: proc(canvas: ^Canvas) {
 			)
 		}
 
+		canvas_rect := get_canvas_rect(canvas)
 		if check_corner(
 			mouse_pos,
 			canvas_rect.x + canvas_rect.width,
@@ -480,5 +569,30 @@ update_resize_handles :: proc(canvas: ^Canvas) {
 		} else {
 			rl.SetMouseCursor(.ARROW)
 		}
+	}
+}
+
+get_canvas_rect :: proc(canvas: ^Canvas) -> rl.Rectangle {
+	screen := camera_to_screen_coords(canvas)
+	scale_x, scale_y := get_scale(canvas, screen)
+
+	return rl.Rectangle {
+		x = canvas.container.position.x - screen.x * scale_x,
+		y = canvas.container.position.y - screen.y * scale_y,
+		width = f32(canvas.texture.texture.width) * scale_x,
+		height = f32(canvas.texture.texture.height) * scale_y,
+	}
+}
+
+
+toggle_canvas_mode :: proc(canvas: ^Canvas) {
+	canvas.mode = canvas.mode == .Fixed ? .Infinite : .Fixed
+
+	// Reset camera when switching modes
+	if canvas.mode == .Fixed {
+		// Center on canvas
+		canvas.camera.x = f32(canvas.texture.texture.width) / 2
+		canvas.camera.y = f32(canvas.texture.texture.height) / 2
+		canvas.camera.z = f32(canvas.container.width) / (2 * math.tan_f32(CAMERA_ANGLE))
 	}
 }

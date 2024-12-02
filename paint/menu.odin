@@ -49,6 +49,7 @@ menus := []Menu {
 			{label = "Zoom Out", shortcut = "Ctrl+-", enabled = true},
 			{label = "Show Grid", shortcut = "Ctrl+G", enabled = true},
 			{label = "Actual Size", shortcut = "Ctrl+0", enabled = true},
+			{label = "Infinite Canvas", shortcut = "Ctrl+Alt+I", enabled = true},
 		},
 	},
 	{
@@ -162,6 +163,13 @@ draw_menu_item :: proc(bounds: rl.Rectangle, item: MenuItem, is_active: bool) ->
 	mouse_pos := rl.GetMousePosition()
 	is_hovered := rl.CheckCollisionPointRec(mouse_pos, bounds)
 	was_clicked := is_hovered && rl.IsMouseButtonPressed(.LEFT)
+
+	//TODO: Make this a part of the struct MenuItem somehow
+	if item.label == "Infinite Canvas" && state.canvas.mode == .Infinite {
+		check_x := bounds.x + bounds.width - 24
+		check_y := bounds.y + (bounds.width - FONT_SIZE) / 2
+		rl.DrawTextEx(ui_font, "✓", {check_x, check_y}, FONT_SIZE, 1, rl.BLACK)
+	}
 
 	return was_clicked && item.enabled
 }
@@ -333,6 +341,11 @@ handle_menu_action :: proc(menu_label: string, item: MenuItem) {
 		// TODO: Implement copy
 		case "Paste":
 		// TODO: Implement paste
+		}
+	case "View":
+		switch item.label {
+		case "Infinite Canvas":
+			toggle_canvas_mode(&state.canvas)
 		}
 	// Add other menu categories
 	}

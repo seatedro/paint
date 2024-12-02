@@ -44,10 +44,7 @@ update :: proc() {
 
 	update_canvas(&state.canvas)
 
-	mouse_pos := rl.GetMousePosition()
-	canvas_pos := window_to_canvas_coords(&state.canvas, mouse_pos)
-
-	update_drawing(state, canvas_pos, state.primary_color)
+	update_drawing(state, state.primary_color)
 }
 
 
@@ -69,6 +66,12 @@ draw :: proc() {
 	// Draw status bar at bottom with FPS counter
 	status_bar_y := i32(state.window_size.y) - STATUSBAR_HEIGHT
 	rl.DrawRectangle(0, status_bar_y, i32(state.window_size.x), STATUSBAR_HEIGHT, rl.LIGHTGRAY)
+
+	// Mode Indicator
+	mode_text :=
+		state.canvas.mode == .Infinite ? "Canvas: Infinite" : fmt.tprintf("Canvas: {}x{}", state.canvas.container.width, state.canvas.container.height)
+	mode_text_pos := rl.Vector2{10, f32(status_bar_y) + f32(STATUSBAR_HEIGHT) / 2 - FONT_SIZE / 2}
+	rl.DrawTextEx(ui_font, cstring(raw_data(mode_text)), mode_text_pos, FONT_SIZE, 1, rl.BLACK)
 
 	fps_text := fmt.tprintf("FPS: %d", rl.GetFPS())
 	fps_text_pos := rl.Vector2 {
