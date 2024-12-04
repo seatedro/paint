@@ -59,7 +59,7 @@ apply_op :: proc(canvas: ^Canvas, op: Operation) {
 	case StrokeOperation:
 		draw_stroke(canvas, op.points, op.color, op.size)
 	case ImageOperation:
-		if is_canvas_empty(canvas) {
+		if canvas.mode == .Fixed && is_canvas_empty(canvas) {
 			resize_canvas(canvas, op.width, op.height)
 
 			rl.BeginTextureMode(canvas.texture)
@@ -80,23 +80,25 @@ undo :: proc(canvas: ^Canvas) {
 	canvas.history.curr_index -= 1
 
 	// Clear canvas
-	rl.BeginTextureMode(canvas.texture)
-	rl.ClearBackground(rl.WHITE)
-	rl.EndTextureMode()
+	if canvas.mode == .Fixed {
+		rl.BeginTextureMode(canvas.texture)
+		rl.ClearBackground(rl.WHITE)
+		rl.EndTextureMode()
 
-
-	for i := 0; i <= canvas.history.curr_index; i += 1 {
-		apply_op(canvas, canvas.history.operations[i])
+		for i := 0; i <= canvas.history.curr_index; i += 1 {
+			apply_op(canvas, canvas.history.operations[i])
+		}
 	}
 }
 
 redo :: proc(canvas: ^Canvas) {
 	if canvas.history.curr_index >= len(canvas.history.operations) - 1 do return
 
-
 	canvas.history.curr_index += 1
 	canvas.dirty = true
-	apply_op(canvas, canvas.history.operations[canvas.history.curr_index])
+	if canvas.mode == .Fixed {
+		apply_op(canvas, canvas.history.operations[canvas.history.curr_index])
+	}
 }
 
 destroy_op :: proc(op: Operation) {

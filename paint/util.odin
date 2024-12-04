@@ -38,6 +38,53 @@ handle_file_drop :: proc() {
 	}
 }
 
+// Supported image formats for validation
+// SUPPORTED_FORMATS :: []string {
+// 	".png",
+// 	".bmp",
+// 	".tga",
+// 	".jpg",
+// 	".jpeg",
+// 	".gif",
+// 	".psd",
+// 	".hdr",
+// 	".pic",
+// }
+
+// handle_paste :: proc() -> bool {
+// 	if !rl.IsKeyDown(.LEFT_CONTROL) &&
+// 	   !rl.IsKeyDown(.RIGHT_CONTROL) &&
+// 	   !rl.IsKeyDown(.LEFT_SUPER) &&
+// 	   !rl.IsKeyDown(.RIGHT_SUPER) {
+// 		return false
+// 	}
+// 	if !rl.IsKeyPressed(.V) {
+// 		return false
+// 	}
+
+// 	// Get clipboard content as raw bytes
+// 	data := rl.GetClipboardImage()
+// 	if data == nil {
+// 		return false
+// 	}
+// 	fmt.println("clipboard data :: ", data)
+// 	defer rl.MemFree(data)
+
+
+// 	// Try loading the data as different image formats
+// 	for format in SUPPORTED_FORMATS {
+// 		image := rl.LoadImageFromMemory(cstring(raw_data(format)), rawptr(data), i32(len(data)))
+
+// 		if image.data != nil {
+// 			// Successfully loaded as image
+// 			defer rl.UnloadImage(image)
+// 			draw_image(&state.canvas, image)
+// 		}
+// 	}
+
+// 	return false
+// }
+
 is_canvas_empty :: proc(canvas: ^Canvas) -> bool {
 	if canvas.dirty {
 		image := rl.LoadImageFromTexture(canvas.texture.texture)

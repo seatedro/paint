@@ -290,8 +290,7 @@ draw_infinite_canvas :: proc(canvas: ^Canvas, screen: rl.Rectangle, scale_x, sca
 		case StrokeOperation:
 			draw_stroke(canvas, o.points, o.color, o.size, screen, scale_x, scale_y)
 		case ImageOperation:
-			screen_pos := world_to_screen_point(canvas, o.pos)
-			draw_image_at(canvas, o, screen_pos, scale_x, scale_y)
+			draw_image_at(canvas, o, o.pos, scale_x, scale_y)
 		}
 	}
 }
@@ -480,8 +479,14 @@ draw_image_at :: proc(
 		rl.DrawTexturePro(op.texture, source_rect, dest_rect, {0, 0}, 0, rl.WHITE)
 
 	case .Infinite:
+		screen_pos := world_to_screen_point(canvas, pos)
 		source_rect := rl.Rectangle{0, 0, f32(op.width), f32(op.height)}
-		dest_rect := rl.Rectangle{pos.x, pos.y, f32(op.width) * scale_x, f32(op.height) * scale_y}
+		dest_rect := rl.Rectangle {
+			screen_pos.x,
+			screen_pos.y,
+			f32(op.width) * scale_x,
+			f32(op.height) * scale_y,
+		}
 		rl.DrawTexturePro(op.texture, source_rect, dest_rect, {0, 0}, 0, rl.WHITE)
 	}
 }
