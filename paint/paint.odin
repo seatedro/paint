@@ -50,7 +50,12 @@ update :: proc() {
 
 draw :: proc() {
 	rl.BeginDrawing()
-	rl.ClearBackground(rl.DARKGRAY)
+	switch state.canvas.mode {
+	case .Fixed:
+		rl.ClearBackground(rl.DARKGRAY)
+	case .Infinite:
+		rl.ClearBackground(rl.WHITE)
+	}
 
 	draw_canvas(&state.canvas)
 

@@ -18,16 +18,13 @@ DrawState :: struct {
 }
 
 Canvas :: struct {
-	texture:       rl.RenderTexture2D, // Main Canvas
+	texture:       rl.RenderTexture2D, // Main Canvas for fixed mode
 	container:     struct {
 		width, height: i32,
 		position:      rl.Vector2, // Canvas Position in window
 	},
 	camera:        struct {
 		x, y, z: f32, // distancce from camera to canvas
-	},
-	pointer:       struct {
-		x, y: f32,
 	},
 	is_dragging:   bool,
 	drag_start:    rl.Vector2,
@@ -53,10 +50,6 @@ ResizeHandle :: enum {
 	BottomRight,
 }
 
-ScreenCoords :: struct {
-	x, y:          f32, // Position
-	width, height: f32, // Dimensions
-}
 
 create_canvas :: proc(width, height: i32, infinite := false, mode := CanvasMode.Fixed) -> Canvas {
 	container_width := i32(rl.GetScreenWidth() - TOOLBAR_WIDTH)
@@ -175,13 +168,6 @@ update_canvas :: proc(canvas: ^Canvas) {
 		canvas.is_dragging = false
 	}
 
-	// Update pointer position
-	mouse_pos := rl.GetMousePosition()
-	canvas.pointer = {
-		x = (mouse_pos.x - canvas.container.position.x),
-		y = (mouse_pos.y - canvas.container.position.y),
-	}
-
 	if !canvas.is_dragging {
 		update_resize_handles(canvas)
 	}
@@ -198,12 +184,12 @@ window_to_canvas_coords :: proc(canvas: ^Canvas, window_pos: rl.Vector2) -> rl.V
 	return {x, y}
 }
 
-camera_to_screen_coords :: proc(canvas: ^Canvas) -> ScreenCoords {
+camera_to_screen_coords :: proc(canvas: ^Canvas) -> rl.Rectangle {
 	aspect := f32(canvas.container.width) / f32(canvas.container.height)
 	width := 2 * canvas.camera.z * math.tan_f32(CAMERA_ANGLE)
 	height := width / aspect
 
-	return ScreenCoords {
+	return rl.Rectangle {
 		x = canvas.camera.x - width / 2,
 		y = canvas.camera.y - height / 2,
 		width = width,
@@ -229,7 +215,7 @@ scale_with_anchor :: proc(canvas: ^Canvas, anchor_x, anchor_y: f32, delta_z: f32
 	canvas.camera.z = new_z
 }
 
-get_scale :: proc(canvas: ^Canvas, screen: ScreenCoords) -> (f32, f32) {
+get_scale :: proc(canvas: ^Canvas, screen: rl.Rectangle) -> (f32, f32) {
 	return f32(canvas.container.width) / screen.width, f32(canvas.container.height) / screen.height
 }
 
@@ -261,6 +247,15 @@ draw_canvas :: proc(canvas: ^Canvas) {
 	screen := camera_to_screen_coords(canvas)
 	scale_x, scale_y := get_scale(canvas, screen)
 
+	switch canvas.mode {
+	case .Fixed:
+		draw_fixed_canvas(canvas, screen, scale_x, scale_y)
+	case .Infinite:
+		draw_infinite_canvas(canvas, screen, scale_x, scale_y)
+	}
+}
+
+draw_fixed_canvas :: proc(canvas: ^Canvas, screen: rl.Rectangle, scale_x, scale_y: f32) {
 	// Draw canvas texture
 	source_rect := rl.Rectangle {
 		0,
@@ -283,6 +278,22 @@ draw_canvas :: proc(canvas: ^Canvas) {
 	}
 
 	rl.DrawTexturePro(canvas.texture.texture, source_rect, dest_rect, {0, 0}, 0.0, rl.WHITE)
+
+}
+
+draw_infinite_canvas :: proc(canvas: ^Canvas, screen: rl.Rectangle, scale_x, scale_y: f32) {
+	for i := 0; i <= canvas.history.curr_index; i += 1 {
+		op := canvas.history.operations[i]
+		if !op.visible do continue
+
+		switch o in op.type {
+		case StrokeOperation:
+			draw_stroke(canvas, o.points, o.color, o.size, screen, scale_x, scale_y)
+		case ImageOperation:
+			screen_pos := world_to_screen_point(canvas, o.pos)
+			draw_image_at(canvas, o, screen_pos, scale_x, scale_y)
+		}
+	}
 }
 
 create_draw_state :: proc() -> DrawState {
@@ -322,44 +333,86 @@ add_point :: proc(state: ^DrawState, point: rl.Vector2) {
 	state.last_point = smoothed_point
 }
 
-draw_stroke :: proc(canvas: ^Canvas, points: []rl.Vector2, color: rl.Color, size: i32) {
+draw_stroke :: proc(
+	canvas: ^Canvas,
+	points: []rl.Vector2,
+	color: rl.Color,
+	size: i32,
+	screen: rl.Rectangle = {},
+	scale_x: f32 = 1,
+	scale_y: f32 = 1,
+) {
 	if len(points) < 2 do return
 
-	rl.BeginTextureMode(canvas.texture)
-	defer rl.EndTextureMode()
+	switch canvas.mode {
+	case .Fixed:
+		rl.BeginTextureMode(canvas.texture)
+		defer rl.EndTextureMode()
 
-	// For very short strokes, just draw a line
-	if len(points) == 2 {
-		rl.DrawLineEx(points[0], points[1], f32(size), color)
+		if len(points) == 2 {
+			rl.DrawLineEx(points[0], points[1], f32(size), color)
+			rl.DrawCircleV(points[0], f32(size) / 2, color)
+			rl.DrawCircleV(points[1], f32(size) / 2, color)
+			return
+		}
+
+		// For longer strokes, use Catmull-Rom spline
+		extended_points := make([dynamic]rl.Vector2, 0, len(points) + 2)
+		defer delete(extended_points)
+
+		start_control := points[0] - (points[1] - points[0])
+		append(&extended_points, start_control)
+
+		for point in points {
+			append(&extended_points, point)
+		}
+
+		end_control :=
+			points[len(points) - 1] + (points[len(points) - 1] - points[len(points) - 2])
+		append(&extended_points, end_control)
+
+		rl.DrawSplineCatmullRom(
+			raw_data(extended_points[:]),
+			i32(len(extended_points)),
+			f32(size),
+			color,
+		)
+
 		rl.DrawCircleV(points[0], f32(size) / 2, color)
-		rl.DrawCircleV(points[1], f32(size) / 2, color)
-		return
+		rl.DrawCircleV(points[len(points) - 1], f32(size) / 2, color)
+
+	case .Infinite:
+		if len(points) == 2 {
+			p1 := world_to_screen_point(canvas, points[0])
+			p2 := world_to_screen_point(canvas, points[1])
+			rl.DrawLineEx(p1, p2, f32(size) * scale_x, color)
+			rl.DrawCircleV(p1, f32(size) / 2 * scale_x, color)
+			rl.DrawCircleV(p2, f32(size) / 2 * scale_x, color)
+			return
+		}
+
+		screen_points := make([dynamic]rl.Vector2, 0, len(points) + 2)
+		defer delete(screen_points)
+
+		// Add control points
+		first := points[0]
+		last := points[len(points) - 1]
+		start_control := first - (points[1] - first)
+		end_control := last + (last - points[len(points) - 2])
+
+		append(&screen_points, world_to_screen_point(canvas, start_control))
+		for point in points {
+			append(&screen_points, world_to_screen_point(canvas, point))
+		}
+		append(&screen_points, world_to_screen_point(canvas, end_control))
+
+		rl.DrawSplineCatmullRom(
+			raw_data(screen_points[:]),
+			i32(len(screen_points)),
+			f32(size) * scale_x,
+			color,
+		)
 	}
-
-	// For longer strokes, use Catmull-Rom spline
-	// Add control points at the start and end
-	extended_points := make([dynamic]rl.Vector2, 0, len(points) + 2)
-	defer delete(extended_points)
-
-	start_control := points[0] - (points[1] - points[0])
-	append(&extended_points, start_control)
-
-	for point in points {
-		append(&extended_points, point)
-	}
-
-	end_control := points[len(points) - 1] + (points[len(points) - 1] - points[len(points) - 2])
-	append(&extended_points, end_control)
-
-	rl.DrawSplineCatmullRom(
-		raw_data(extended_points[:]),
-		i32(len(extended_points)),
-		f32(size),
-		color,
-	)
-
-	rl.DrawCircleV(points[0], f32(size) / 2, color)
-	rl.DrawCircleV(points[len(points) - 1], f32(size) / 2, color)
 }
 
 update_drawing :: proc(state: ^State, color: rl.Color) {
@@ -394,82 +447,118 @@ update_drawing :: proc(state: ^State, color: rl.Color) {
 		}
 
 		copied_points := clone_points(state.draw_state.points[:])
-		stroke_op := Operation(
-			StrokeOperation {
-				info = {type = OperationType.Stroke, timestamp = time.now()._nsec},
-				points = copied_points,
-				color = color,
-				size = i32(state.brush_size),
-			},
-		)
+		stroke_op := Operation {
+			type      = OperationVariant(
+				StrokeOperation {
+					points = copied_points,
+					color = color,
+					size = i32(state.brush_size),
+				},
+			),
+			timestamp = time.now()._nsec,
+			visible   = true,
+		}
 		push_op(&state.canvas, stroke_op)
 		reset_drawing(&state.draw_state)
 	}
 }
 
-draw_image_at :: proc(canvas: ^Canvas, image: rl.Image, pos: rl.Vector2) {
-	texture := rl.LoadTextureFromImage(image)
-	defer rl.UnloadTexture(texture)
+draw_image_at :: proc(
+	canvas: ^Canvas,
+	op: ImageOperation,
+	pos: rl.Vector2,
+	scale_x: f32 = 1.0,
+	scale_y: f32 = 1.0,
+) {
+	switch canvas.mode {
+	case .Fixed:
+		rl.BeginTextureMode(canvas.texture)
+		defer rl.EndTextureMode()
 
-	rl.BeginTextureMode(canvas.texture)
-	defer rl.EndTextureMode()
+		source_rect := rl.Rectangle{0, 0, f32(op.width), f32(op.height)}
+		dest_rect := rl.Rectangle{pos.x, pos.y, f32(op.width) * scale_x, f32(op.height) * scale_y}
+		rl.DrawTexturePro(op.texture, source_rect, dest_rect, {0, 0}, 0, rl.WHITE)
 
-	source_rect := rl.Rectangle{0, 0, f32(image.width), f32(image.height)}
-	dest_rect := rl.Rectangle{pos.x, pos.y, f32(image.width), f32(image.height)}
-	rl.DrawTexturePro(texture, source_rect, dest_rect, {0, 0}, 0, rl.WHITE)
+	case .Infinite:
+		source_rect := rl.Rectangle{0, 0, f32(op.width), f32(op.height)}
+		dest_rect := rl.Rectangle{pos.x, pos.y, f32(op.width) * scale_x, f32(op.height) * scale_y}
+		rl.DrawTexturePro(op.texture, source_rect, dest_rect, {0, 0}, 0, rl.WHITE)
+	}
 }
 
 
-draw_image :: proc(canvas: ^Canvas, filepath: cstring) -> bool {
-	image := rl.LoadImage(filepath)
-	if image.data == nil {
-		return false
-	}
-	// defer rl.UnloadImage(image)
-
-	if image.format != .UNCOMPRESSED_R8G8B8A8 {
-		rl.ImageFormat(&image, .UNCOMPRESSED_R8G8B8A8)
-	}
-
+draw_image :: proc(
+	canvas: ^Canvas,
+	image: rl.Image,
+	screen: rl.Rectangle = {},
+	scale_x: f32 = 1,
+	scale_y: f32 = 1,
+) -> bool {
 	pos: rl.Vector2
-	if is_canvas_empty(canvas) {
-		// If canvas is empty, resize it to match the image
-		resize_canvas(canvas, image.width, image.height)
-		pos = {0, 0}
+	texture: rl.Texture2D
 
-		// Draw the image directly
-		texture := rl.LoadTextureFromImage(image)
-		defer rl.UnloadTexture(texture)
+	switch canvas.mode {
+	case .Fixed:
+		if is_canvas_empty(canvas) {
+			// If canvas is empty, resize it to match the image
+			resize_canvas(canvas, image.width, image.height)
+			pos = {0, 0}
 
-		rl.BeginTextureMode(canvas.texture)
-		rl.DrawTexture(texture, 0, 0, rl.WHITE)
-		rl.EndTextureMode()
-	} else {
+			// Draw the image directly
+			texture = rl.LoadTextureFromImage(image)
+
+			rl.BeginTextureMode(canvas.texture)
+			rl.DrawTexture(texture, 0, 0, rl.WHITE)
+			rl.EndTextureMode()
+		} else {
+			// If canvas has content, paste image at cursor position
+			mouse_pos := window_to_canvas_coords(canvas, rl.GetMousePosition())
+			pos = {mouse_pos.x - f32(image.width) / 2, mouse_pos.y - f32(image.height) / 2}
+
+			texture = rl.LoadTextureFromImage(image)
+
+			rl.BeginTextureMode(canvas.texture)
+			source_rect := rl.Rectangle{0, 0, f32(image.width), f32(image.height)}
+			dest_rect := rl.Rectangle{pos.x, pos.y, f32(image.width), f32(image.height)}
+			rl.DrawTexturePro(texture, source_rect, dest_rect, {0, 0}, 0, rl.WHITE)
+			rl.EndTextureMode()
+		}
+
+
+	case .Infinite:
 		// If canvas has content, paste image at cursor position
 		mouse_pos := window_to_canvas_coords(canvas, rl.GetMousePosition())
-		pos = {mouse_pos.x - f32(image.width) / 2, mouse_pos.y - f32(image.height) / 2}
+		pos = rl.Vector2{mouse_pos.x - f32(image.width) / 2, mouse_pos.y - f32(image.height) / 2}
 
-		texture := rl.LoadTextureFromImage(image)
-		defer rl.UnloadTexture(texture)
+		screen_pos := world_to_screen_point(canvas, pos)
+		texture = rl.LoadTextureFromImage(image)
 
-		rl.BeginTextureMode(canvas.texture)
 		source_rect := rl.Rectangle{0, 0, f32(image.width), f32(image.height)}
-		dest_rect := rl.Rectangle{pos.x, pos.y, f32(image.width), f32(image.height)}
+		dest_rect := rl.Rectangle {
+			screen_pos.x,
+			screen_pos.y,
+			f32(image.width) * scale_x,
+			f32(image.height) * scale_y,
+		}
+
 		rl.DrawTexturePro(texture, source_rect, dest_rect, {0, 0}, 0, rl.WHITE)
-		rl.EndTextureMode()
 	}
 
 	// Create and store the operation for undo/redo
-	img_op := Operation(
-		ImageOperation {
-			info = {type = OperationType.Image, timestamp = time.now()._nsec},
-			image = image,
-			width = image.width,
-			height = image.height,
-			pos = pos,
-		},
-	)
+	img_op := Operation {
+		type      = OperationVariant(
+			ImageOperation {
+				texture = texture,
+				width = image.width,
+				height = image.height,
+				pos = pos,
+			},
+		),
+		timestamp = time.now()._nsec,
+		visible   = true,
+	}
 	push_op(canvas, img_op)
+
 
 	return true
 }
@@ -594,5 +683,50 @@ toggle_canvas_mode :: proc(canvas: ^Canvas) {
 		canvas.camera.x = f32(canvas.texture.texture.width) / 2
 		canvas.camera.y = f32(canvas.texture.texture.height) / 2
 		canvas.camera.z = f32(canvas.container.width) / (2 * math.tan_f32(CAMERA_ANGLE))
+	}
+}
+
+world_to_screen_point :: proc(canvas: ^Canvas, world_pos: rl.Vector2) -> rl.Vector2 {
+	screen := camera_to_screen_coords(canvas)
+	scale_x, scale_y := get_scale(canvas, screen)
+
+	x := (world_pos.x - screen.x) * scale_x + canvas.container.position.x
+	y := (world_pos.y - screen.y) * scale_y + canvas.container.position.y
+	return {x, y}
+}
+
+is_operation_visible :: proc(op: Operation, view_bounds: rl.Rectangle) -> bool {
+	bounds: rl.Rectangle
+	switch o in op.type {
+	case StrokeOperation:
+		bounds = get_points_bounds(o.points)
+	case ImageOperation:
+		bounds = rl.Rectangle{o.pos.x, o.pos.y, f32(o.width), f32(o.height)}
+	}
+
+	return rl.CheckCollisionRecs(bounds, view_bounds)
+}
+
+get_points_bounds :: proc(points: []rl.Vector2) -> rl.Rectangle {
+	if len(points) == 0 do return rl.Rectangle{}
+
+	min_x := points[0].x
+	min_y := points[0].y
+	max_x := points[0].x
+	max_y := points[0].y
+
+	for point in points[1:] {
+		min_x = min(min_x, point.x)
+		min_y = min(min_y, point.y)
+		max_x = max(max_x, point.x)
+		max_y = max(max_y, point.y)
+	}
+
+	padding: f32 = 10.0 // Add some padding for stroke width
+	return rl.Rectangle {
+		x = min_x - padding,
+		y = min_y - padding,
+		width = max_x - min_x + padding * 2,
+		height = max_y - min_y + padding * 2,
 	}
 }

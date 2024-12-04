@@ -2,36 +2,26 @@ package paint
 
 import rl "vendor:raylib"
 
-OperationInfo :: struct {
-	type:      OperationType,
+Operation :: struct {
+	type:      OperationVariant,
 	timestamp: i64,
-}
-
-OperationType :: enum {
-	Stroke,
-	Erase,
-	Fill,
-	Shape,
-	Text,
-	Image,
+	visible:   bool,
 }
 
 StrokeOperation :: struct {
-	using info: OperationInfo,
-	points:     []rl.Vector2,
-	color:      rl.Color,
-	size:       i32,
+	points: []rl.Vector2,
+	color:  rl.Color,
+	size:   i32,
 }
 
 ImageOperation :: struct {
-	using info: OperationInfo,
-	image:      rl.Image,
-	pos:        rl.Vector2,
-	width:      i32,
-	height:     i32,
+	texture: rl.Texture2D,
+	pos:     rl.Vector2,
+	width:   i32,
+	height:  i32,
 }
 
-Operation :: union {
+OperationVariant :: union {
 	StrokeOperation,
 	ImageOperation,
 }
@@ -65,20 +55,18 @@ apply_op :: proc(canvas: ^Canvas, op: Operation) {
 	// rl.BeginTextureMode(canvas.texture)
 	// defer rl.EndTextureMode()
 
-	switch op in op {
+	switch op in op.type {
 	case StrokeOperation:
 		draw_stroke(canvas, op.points, op.color, op.size)
 	case ImageOperation:
 		if is_canvas_empty(canvas) {
 			resize_canvas(canvas, op.width, op.height)
-			tex := rl.LoadTextureFromImage(op.image)
-			defer rl.UnloadTexture(tex)
 
 			rl.BeginTextureMode(canvas.texture)
-			rl.DrawTexture(tex, 0, 0, rl.WHITE)
+			rl.DrawTexture(op.texture, 0, 0, rl.WHITE)
 			rl.EndTextureMode()
 		} else {
-			draw_image_at(canvas, op.image, op.pos)
+			draw_image_at(canvas, op, op.pos)
 		}
 	}
 }
@@ -112,9 +100,9 @@ redo :: proc(canvas: ^Canvas) {
 }
 
 destroy_op :: proc(op: Operation) {
-	switch o in op {
+	switch o in op.type {
 	case ImageOperation:
-		rl.UnloadImage(o.image)
+		rl.UnloadTexture(o.texture)
 	case StrokeOperation:
 		delete(o.points)
 	}

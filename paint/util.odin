@@ -21,7 +21,16 @@ handle_file_drop :: proc() {
 	defer rl.UnloadDroppedFiles(files)
 
 	if files.count > 0 {
-		success := draw_image(&state.canvas, files.paths[0])
+		image := rl.LoadImage(files.paths[0])
+		if image.data == nil {
+			return
+		}
+		defer rl.UnloadImage(image)
+
+		if image.format != .UNCOMPRESSED_R8G8B8A8 {
+			rl.ImageFormat(&image, .UNCOMPRESSED_R8G8B8A8)
+		}
+		success := draw_image(&state.canvas, image)
 		if !success {
 			//TODO: Show an error dialog
 			fmt.println("failed to load image:", files.paths[0])
