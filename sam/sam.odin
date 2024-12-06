@@ -54,7 +54,7 @@ sam :: proc() {
 	// Initialize window with a reasonable fixed size
 	window_width := 1280
 	window_height := 720
-	rl.InitWindow(i32(window_width), i32(window_height), "odingboard (paint 2.0)")
+	rl.InitWindow(i32(window_width), i32(window_height), "odingboard (yume 2.0)")
 	defer rl.CloseWindow()
 	rl.SetTargetFPS(60)
 	log("Window initialized")

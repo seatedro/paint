@@ -55,9 +55,9 @@ ar t build/libonnx_bridge.a
 echo "Building Odin program..."
 odin build . \
     -extra-linker-flags:"-Lbuild/ -lonnx_bridge $ONNX_LIB" \
-    -out:paint
+    -out:yume
 
-echo "Build complete! Executable is in paint"
+echo "Build complete! Executable is in yume"
 echo
 echo "Usage:"
-echo "  ./paint"
+echo "  ./yume"

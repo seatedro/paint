@@ -1,4 +1,4 @@
-package paint
+package yume
 
 import rl "vendor:raylib"
 
@@ -74,7 +74,7 @@ menus := []Menu {
 		label = "Help",
 		items = []MenuItem {
 			{label = "Help Topics", shortcut = "F1", enabled = true},
-			{label = "About Paint", enabled = true},
+			{label = "About yume", enabled = true},
 		},
 	},
 }
@@ -85,7 +85,7 @@ init_menu_style :: proc() {
 	// Set up the default style
 	rl.GuiLoadStyleDefault()
 
-	// Configure colors to match Paint
+	// Configure colors to match yume
 	rl.GuiSetStyle(
 		.DEFAULT,
 		i32(rl.GuiControlProperty.BASE_COLOR_NORMAL),

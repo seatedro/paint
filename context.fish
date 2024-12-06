@@ -1,7 +1,7 @@
 #!/opt/homebrew/bin/fish
 
 echo "" > temp.txt  # Clear/create temp file
-for file in (fd . "paint/" -e odin)
+for file in (fd . "yume/" -e odin)
     echo "// $file" >> temp.txt
     echo "" >> temp.txt
     cat $file >> temp.txt

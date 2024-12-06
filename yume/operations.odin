@@ -1,4 +1,4 @@
-package paint
+package yume
 
 import rl "vendor:raylib"
 

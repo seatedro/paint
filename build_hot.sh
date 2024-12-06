@@ -32,17 +32,17 @@ case $(uname) in
 esac
 
 # Build the application.
-echo "Building paint$DLL_EXT"
-odin build paint -extra-linker-flags:"$EXTRA_LINKER_FLAGS" -define:RAYLIB_SHARED=true -build-mode:dll -out:paint_tmp$DLL_EXT -strict-style -vet -debug
+echo "Building yume$DLL_EXT"
+odin build yume -extra-linker-flags:"$EXTRA_LINKER_FLAGS" -define:RAYLIB_SHARED=true -build-mode:dll -out:build/yume_tmp$DLL_EXT -strict-style -vet -debug
 
-mv paint_tmp$DLL_EXT paint$DLL_EXT
+mv build/yume_tmp$DLL_EXT build/yume$DLL_EXT
 
-# Do not build the paint_hot_reload.bin if it is already running.
+# Do not build the yume_hot_reload.bin if it is already running.
 # -f is there to make sure we match against full name, including .bin
-if pgrep -f paint_hot_reload.bin > /dev/null; then
-    echo "paint running, hot reloading..."
+if pgrep -f build/yume_hot_reload.bin > /dev/null; then
+    echo "yume running, hot reloading..."
     exit 1
 else
-    echo "Building paint_hot_reload.bin"
-    odin build hot_reload -out:paint_hot_reload.bin -strict-style -vet -debug
+    echo "Building yume_hot_reload.bin"
+    odin build hot_reload -out:build/yume_hot_reload.bin -strict-style -vet -debug
 fi

@@ -1,3 +1,3 @@
 #!/usr/bin/env bash
 
-odin build . -out:bin/paint -strict-style -vet -no-bounds-check -o:speed
+odin build . -out:bin/yume -strict-style -vet -no-bounds-check -o:speed

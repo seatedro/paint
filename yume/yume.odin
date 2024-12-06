@@ -1,4 +1,4 @@
-package paint
+package yume
 
 import "core:fmt"
 import rl "vendor:raylib"
@@ -11,6 +11,9 @@ update :: proc() {
 	if (rl.IsFileDropped()) {
 		handle_file_drop()
 	}
+
+	// Handle pasting images
+	// handle_paste()
 
 	ctrl_pressed := rl.IsKeyDown(.LEFT_CONTROL) || rl.IsKeyDown(.RIGHT_CONTROL)
 	#partial switch ODIN_OS {
@@ -94,17 +97,17 @@ draw :: proc() {
 }
 
 @(export)
-paint_update :: proc() -> bool {
+yume_update :: proc() -> bool {
 	update()
 	draw()
 	return !rl.WindowShouldClose()
 }
 
 @(export)
-paint_init_window :: proc() {
+yume_init_window :: proc() {
 	rl.SetConfigFlags({.WINDOW_RESIZABLE, .VSYNC_HINT, .WINDOW_TOPMOST, .MSAA_4X_HINT})
 	rl.SetWindowMonitor(0)
-	rl.InitWindow(1280, 720, "paint 2.0")
+	rl.InitWindow(1280, 720, "yume 2.0")
 	rl.SetWindowPosition(0, 0)
 	rl.SetTargetFPS(60)
 
@@ -112,7 +115,7 @@ paint_init_window :: proc() {
 }
 
 @(export)
-paint_init :: proc() {
+yume_init :: proc() {
 	state = new(State)
 
 	state^ = State {
@@ -128,13 +131,13 @@ paint_init :: proc() {
 		draw_state      = create_draw_state(),
 	}
 
-	paint_hot_reloaded(state)
+	yume_hot_reloaded(state)
 	init_menu_style()
 
 }
 
 @(export)
-paint_shutdown :: proc() {
+yume_shutdown :: proc() {
 	destroy_draw_state(&state.draw_state)
 	destroy_canvas(&state.canvas)
 	free(state)
@@ -142,32 +145,32 @@ paint_shutdown :: proc() {
 }
 
 @(export)
-paint_shutdown_window :: proc() {
+yume_shutdown_window :: proc() {
 	rl.CloseWindow()
 }
 
 @(export)
-paint_memory :: proc() -> rawptr {
+yume_memory :: proc() -> rawptr {
 	return state
 }
 
 @(export)
-paint_memory_size :: proc() -> int {
+yume_memory_size :: proc() -> int {
 	return size_of(State)
 }
 
 @(export)
-paint_hot_reloaded :: proc(mem: rawptr) {
+yume_hot_reloaded :: proc(mem: rawptr) {
 	state = (^State)(mem)
 	ui_font = rl.LoadFontEx(cstring("assets/W95FA.otf"), FONT_SIZE, nil, 0)
 }
 
 @(export)
-paint_force_reload :: proc() -> bool {
+yume_force_reload :: proc() -> bool {
 	return rl.IsKeyPressed(.PERIOD)
 }
 
 @(export)
-paint_force_restart :: proc() -> bool {
+yume_force_restart :: proc() -> bool {
 	return rl.IsKeyPressed(.COMMA)
 }

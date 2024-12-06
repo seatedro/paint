@@ -1,4 +1,4 @@
-package paint
+package yume
 
 PIXEL_WINDOW_HEIGHT :: 180
 MENUBAR_HEIGHT :: 25

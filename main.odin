@@ -3,7 +3,7 @@ package main
 import "core:log"
 import "core:os"
 
-import paint "paint"
+import yume "yume"
 
 USE_TRACKING_ALLOCATOR :: #config(USE_TRACKING_ALLOCATOR, false)
 
@@ -31,12 +31,12 @@ main :: proc() {
 		logh_err == os.ERROR_NONE ? log.create_file_logger(logh) : log.create_console_logger()
 	context.logger = logger
 
-	paint.paint_init_window()
-	paint.paint_init()
+	yume.yume_init_window()
+	yume.yume_init()
 
 	window_open := true
 	for window_open {
-		window_open = paint.paint_update()
+		window_open = yume.yume_update()
 
 		when USE_TRACKING_ALLOCATOR {
 			for b in tracking_allocator.bad_free_array {
@@ -50,8 +50,8 @@ main :: proc() {
 	}
 
 	free_all(context.temp_allocator)
-	paint.paint_shutdown()
-	paint.paint_shutdown_window()
+	yume.yume_shutdown()
+	yume.yume_shutdown_window()
 
 	if logh_err == os.ERROR_NONE {
 		log.destroy_file_logger(logger)
