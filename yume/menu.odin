@@ -17,7 +17,6 @@ MenuState :: struct {
 	active_menu: int, // Currently active top-level menu
 	active_item: int, // Currently active menu item
 	menu_open:   bool, // Whether any menu is currently open
-	hot_item:    MenuItem, // Item under mouse cursor
 	last_click:  f64, // Time of last click for double-click detection
 }
 
@@ -220,9 +219,6 @@ draw_menu_dropdown :: proc(menu: Menu, pos: rl.Vector2) {
 
 		// Check hover state
 		is_hovered := rl.CheckCollisionPointRec(mouse_pos, item_bounds)
-		if is_hovered {
-			menu_state.hot_item = item
-		}
 
 		// Draw the menu item
 		if is_hovered {

@@ -46,6 +46,7 @@ update :: proc() {
 
 
 	update_canvas(&state.canvas)
+	update_toolbar()
 
 	update_drawing(state, state.primary_color)
 }
@@ -63,13 +64,13 @@ draw :: proc() {
 	draw_canvas(&state.canvas)
 
 	// Draw toolbar on left
-	rl.DrawRectangle(
-		0,
-		MENUBAR_HEIGHT,
-		TOOLBAR_WIDTH,
-		i32(state.window_size.y - MENUBAR_HEIGHT),
-		rl.GRAY,
-	)
+	// rl.DrawRectangle(
+	// 	0,
+	// 	MENUBAR_HEIGHT,
+	// 	TOOLBAR_WIDTH,
+	// 	i32(state.window_size.y - MENUBAR_HEIGHT),
+	// 	rl.GRAY,
+	// )
 
 	// Draw status bar at bottom with FPS counter
 	status_bar_y := i32(state.window_size.y) - STATUSBAR_HEIGHT
@@ -92,7 +93,9 @@ draw :: proc() {
 	}
 	rl.DrawTextEx(ui_font, cstring(raw_data(fps_text)), fps_text_pos, FONT_SIZE, 1, rl.BLACK)
 
+
 	draw_menu_bar()
+	draw_toolbar()
 	rl.EndDrawing()
 }
 
@@ -111,7 +114,7 @@ yume_init_window :: proc() {
 	rl.SetWindowPosition(0, 0)
 	rl.SetTargetFPS(60)
 
-	ui_font = rl.LoadFontEx(cstring("assets/W95FA.otf"), FONT_SIZE, nil, 0)
+	// ui_font = rl.LoadFontEx(cstring("assets/W95FA.otf"), FONT_SIZE, nil, 0)
 }
 
 @(export)
@@ -133,13 +136,14 @@ yume_init :: proc() {
 
 	yume_hot_reloaded(state)
 	init_menu_style()
-
+	init_toolbar()
 }
 
 @(export)
 yume_shutdown :: proc() {
 	destroy_draw_state(&state.draw_state)
 	destroy_canvas(&state.canvas)
+	destroy_toolbar()
 	free(state)
 	rl.UnloadFont(ui_font)
 }

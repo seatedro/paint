@@ -14,7 +14,8 @@ Tool :: enum {
 	Fill,
 	ColorPicker,
 	Text,
-	Shape,
+	Rectangle,
+	Sniper,
 }
 
 State :: struct {

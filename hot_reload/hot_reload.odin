@@ -97,6 +97,7 @@ unload_yume_api :: proc(api: ^yume_API) {
 }
 
 main :: proc() {
+	os.set_current_directory("build")
 	context.logger = log.create_console_logger()
 
 	default_allocator := context.allocator

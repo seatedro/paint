@@ -37,6 +37,8 @@ odin build yume -extra-linker-flags:"$EXTRA_LINKER_FLAGS" -define:RAYLIB_SHARED=
 
 mv build/yume_tmp$DLL_EXT build/yume$DLL_EXT
 
+cp -r assets build/
+
 # Do not build the yume_hot_reload.bin if it is already running.
 # -f is there to make sure we match against full name, including .bin
 if pgrep -f build/yume_hot_reload.bin > /dev/null; then
